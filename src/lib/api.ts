@@ -44,11 +44,10 @@ export interface MatchStatusUpdate {
 
 export interface MatchResponse {
   id: string;
-  title: string;
   status: string;
-  created_at: string;
-  video_url?: string;
-  analysis_data?: any;
+  video_url: string;
+  annotated_video_url?: string;
+  analysis_data_url?: string;
 }
 
 export interface UploadResponse {
@@ -146,7 +145,7 @@ class ApiClient {
   }
 
   async getMatchHistory(token: string): Promise<MatchResponse[]> {
-    return this.request<MatchResponse[]>('/analysis/match_history', {
+    return this.request<MatchResponse[]>('/match/match_history', {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
@@ -154,7 +153,7 @@ class ApiClient {
   }
 
   async getMatch(matchId: string, token: string): Promise<MatchResponse> {
-    return this.request<MatchResponse>(`/analysis/match/${matchId}`, {
+    return this.request<MatchResponse>(`/match/${matchId}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },

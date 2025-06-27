@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
+import { VideoPlayerModal } from "../../components/VideoPlayerModal";
 import { 
   ArrowLeft, 
   Play, 
@@ -80,8 +81,10 @@ export const MatchAnalytics = (): JSX.Element => {
   const { matchId } = useParams();
   const [activeTab, setActiveTab] = useState<"overview" | "players" | "ball" | "heatmap">("overview");
   const [matchData, setMatchData] = useState<MatchData | null>(null);
+  const [match, setMatch] = useState<MatchResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
   const { token } = useAuth();
 
   useEffect(() => {
@@ -90,18 +93,20 @@ export const MatchAnalytics = (): JSX.Element => {
       
       try {
         setLoading(true);
-        const match = await apiClient.getMatch(matchId, token);
+        const matchResponse = await apiClient.getMatch(matchId, token);
+        setMatch(matchResponse);
         
         // Transform API response to match our interface
         // For now, using mock data since the backend doesn't return detailed analytics
         const transformedMatchData: MatchData = {
-          id: match.id,
-          title: match.title || `Match ${matchId}`,
-          date: match.created_at,
+          id: matchResponse.id,
+          title: `Match ${matchId}`,
+          date: new Date().toISOString(), // We'll need created_at from backend
           duration: "1:45:30", // This would come from the backend
           score: "6-4, 6-2", // This would come from the backend
-          result: "win" as const, // This would come from the backend
+          result: "win" as const,
           players: [
+            // Mock player data - this would come from analysis_data_url in the future
             {
               name: "You",
               team: 1,
@@ -279,7 +284,11 @@ export const MatchAnalytics = (): JSX.Element => {
           </div>
         </div>
         <div className="flex space-x-2">
-          <Button variant="outline">
+          <Button 
+            variant="outline"
+            onClick={() => setIsVideoModalOpen(true)}
+            disabled={!match?.video_url}
+          >
             <Play className="h-4 w-4 mr-2" />
             Watch Replay
           </Button>
@@ -586,6 +595,14 @@ export const MatchAnalytics = (): JSX.Element => {
           </CardContent>
         </Card>
       )}
+
+      {/* Video Player Modal */}
+      <VideoPlayerModal
+        isOpen={isVideoModalOpen}
+        onClose={() => setIsVideoModalOpen(false)}
+        videoUrl={match?.video_url || ''}
+        title={matchData?.title || 'Match Replay'}
+      />
     </div>
   );
 }; 
