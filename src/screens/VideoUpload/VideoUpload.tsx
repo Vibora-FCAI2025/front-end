@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/ca
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Progress } from "../../components/ui/progress";
-import { Upload, FileVideo, X, CheckCircle, Download, RotateCcw, Target } from "lucide-react";
+import { Upload, FileVideo, X, CheckCircle, Download, RotateCcw, Target, HelpCircle } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiClient } from "../../lib/api";
@@ -22,7 +22,10 @@ export const VideoUpload = (): JSX.Element => {
   const [keypoints, setKeypoints] = useState<Keypoint[]>([]);
   const [videoId, setVideoId] = useState<string | null>(null);
   const [showKeypointSelection, setShowKeypointSelection] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
   const [videoSize, setVideoSize] = useState({ width: 640, height: 360 });
+  const [originalVideoSize, setOriginalVideoSize] = useState({ width: 640, height: 360 });
+  const [matchTitle, setMatchTitle] = useState("");
   const [metadata, setMetadata] = useState({
     matchDate: "",
     notes: "",
@@ -125,9 +128,16 @@ export const VideoUpload = (): JSX.Element => {
       );
       
       // 3. Send analysis request
-      const keypointsArray = keypoints.map(kp => [Math.round(kp.x), Math.round(kp.y)]);
+      // Scale canvas coordinates to original video coordinates
+      const scaleX = originalVideoSize.width / videoSize.width;
+      const scaleY = originalVideoSize.height / videoSize.height;
+      const keypointsArray = keypoints.map(kp => [
+        Math.round(kp.x * scaleX), 
+        Math.round(kp.y * scaleY)
+      ]);
       await apiClient.analyze({
         video_id: uploadResponse.video_id,
+        title: matchTitle || `Match ${new Date().toLocaleDateString()}`,
         keypoints: keypointsArray
       }, token);
       
@@ -167,6 +177,8 @@ export const VideoUpload = (): JSX.Element => {
         video.muted = true;
         video.onloadeddata = () => {
           video.currentTime = 0;
+          // Capture original video dimensions
+          setOriginalVideoSize({ width: video.videoWidth, height: video.videoHeight });
         };
         video.onseeked = () => drawFrameAndKeypoints();
         video.load();
@@ -191,6 +203,10 @@ export const VideoUpload = (): JSX.Element => {
               </p>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowHelpModal(true)}>
+              <HelpCircle className="h-4 w-4 mr-2" />
+              Help
+            </Button>
             <Button variant="outline" onClick={backToVideoSelection}>
               <span className="mr-2">Back</span>
             </Button>
@@ -210,6 +226,20 @@ export const VideoUpload = (): JSX.Element => {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="match-title" className="block text-sm font-medium mb-2">
+                  Match Title *
+                </label>
+                <Input
+                  id="match-title"
+                  placeholder="Enter match title (e.g., Quarter Finals vs Team Alpha)"
+                  value={matchTitle}
+                  onChange={(e) => setMatchTitle(e.target.value)}
+                  className="w-full"
+                />
+              </div>
+            </div>
             <div className="flex justify-center">
               <div className="relative">
                 <video
@@ -234,13 +264,15 @@ export const VideoUpload = (): JSX.Element => {
               </Button>
                 <Button
                   onClick={handleKeypointFinish}
-                disabled={keypoints.length !== 12 || uploadStatus === "uploading"}
-                className={`bg-blue-600 hover:bg-blue-700 text-white font-semibold ${keypoints.length === 12 && uploadStatus !== "uploading" ? "animate-pulse" : "opacity-60"}`}
+                disabled={keypoints.length !== 12 || !matchTitle.trim() || uploadStatus === "uploading"}
+                className={`bg-blue-600 hover:bg-blue-700 text-white font-semibold ${keypoints.length === 12 && matchTitle.trim() && uploadStatus !== "uploading" ? "animate-pulse" : "opacity-60"}`}
                 >
                 {uploadStatus === "uploading" ? "Processing..." : "Finish & Analyze"}
                 </Button>
-              {keypoints.length !== 12 && (
-                <span className="text-sm text-gray-400">Select all 12 keypoints to start analysis</span>
+              {(keypoints.length !== 12 || !matchTitle.trim()) && (
+                <span className="text-sm text-gray-400">
+                  {!matchTitle.trim() ? "Enter a match title" : "Select all 12 keypoints"} to start analysis
+                </span>
               )}
             </div>
             {uploadStatus === "uploading" && (
@@ -254,6 +286,47 @@ export const VideoUpload = (): JSX.Element => {
             )}
           </CardContent>
         </Card>
+
+        {/* Help Modal */}
+        {showHelpModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-auto">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold">Keypoints Placement Guide</h2>
+                <Button variant="ghost" size="sm" onClick={() => setShowHelpModal(false)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="space-y-4">
+                <p className="text-muted-foreground">
+                  Watch this example video to learn how to properly select the 12 keypoints on the padel court:
+                </p>
+                <div className="flex justify-center">
+                  <video
+                    controls
+                    autoPlay
+                    muted
+                    loop
+                    className="w-full max-w-2xl rounded-lg border"
+                    style={{ maxHeight: '60vh' }}
+                  >
+                    <source src="/select_keypoints.mkv" type="video/mp4" />
+                    Your browser does not support the video tag.
+                  </video>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  <p className="font-medium mb-2">Tips for selecting keypoints:</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>Select points at the corners and boundaries of the court</li>
+                    <li>Try to be as precise as possible for better analysis</li>
+                    <li>Follow the same order shown in the example video</li>
+                    <li>Make sure all 12 points are clearly visible in the video frame</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

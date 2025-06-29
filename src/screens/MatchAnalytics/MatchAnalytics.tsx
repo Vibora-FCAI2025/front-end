@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/ca
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { VideoPlayerModal } from "../../components/VideoPlayerModal";
+import { EmbeddedVideoPlayer } from "../../components/EmbeddedVideoPlayer";
 import { 
   ArrowLeft, 
   Play, 
@@ -21,19 +22,13 @@ import {
   Line, 
   XAxis, 
   YAxis, 
-  CartesianGrid, 
   Tooltip, 
   ResponsiveContainer, 
   BarChart, 
   Bar,
   PieChart,
   Pie,
-  Cell,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar
+  Cell
 } from "recharts";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiClient, MatchResponse } from "../../lib/api";
@@ -42,8 +37,8 @@ interface PlayerStats {
   name: string;
   team: number;
   coveredDistance: number; // in meters
-  avgVelocity: number; // km/h
-  maxVelocity: number; // km/h
+  avgVelocity: number; // m/s
+  maxVelocity: number; // m/s
   totalHits: number;
   successfulHits: number;
   hitAccuracy: number; // percentage
@@ -58,8 +53,8 @@ interface PlayerStats {
 
 interface BallStats {
   coveredDistance: number; // in meters
-  avgVelocity: number; // km/h
-  maxVelocity: number; // km/h
+  avgVelocity: number; // m/s
+  maxVelocity: number; // m/s
   avgAcceleration: number; // m/s²
   maxAcceleration: number; // m/s²
   totalRallies: number;
@@ -77,6 +72,22 @@ interface MatchData {
   ballStats: BallStats;
 }
 
+interface CSVPlayerData {
+  totalDistance: number;
+  avgVelocity: number;
+  maxVelocity: number;
+  hitCount: number;
+}
+
+interface CSVBallData {
+  totalDistance: number;
+  avgVelocity: number;
+  maxVelocity: number;
+  avgAcceleration: number;
+  bounceCount: number;
+  velocityOverTime: Array<{time: string, velocity: number, acceleration: number}>;
+}
+
 export const MatchAnalytics = (): JSX.Element => {
   const { matchId } = useParams();
   const [activeTab, setActiveTab] = useState<"overview" | "players" | "ball" | "heatmap">("overview");
@@ -85,7 +96,202 @@ export const MatchAnalytics = (): JSX.Element => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+
+  const [ballVelocityData, setBallVelocityData] = useState([
+    { time: '0:00', velocity: 32, acceleration: 10 },
+    { time: '0:15', velocity: 38, acceleration: 15 },
+    { time: '0:30', velocity: 45, acceleration: 20 },
+    { time: '0:45', velocity: 52, acceleration: 18 },
+    { time: '1:00', velocity: 41, acceleration: 12 },
+    { time: '1:15', velocity: 35, acceleration: 8 },
+  ]);
+  const [csvBallData, setCsvBallData] = useState<CSVBallData>({ 
+    totalDistance: 0, 
+    avgVelocity: 0, 
+    maxVelocity: 0, 
+    avgAcceleration: 0, 
+    bounceCount: 0, 
+    velocityOverTime: [] 
+  });
   const { token } = useAuth();
+
+  // CSV parsing function
+  const parseCSVData = async (csvUrl: string): Promise<{players: CSVPlayerData[], ball: CSVBallData}> => {
+    try {
+      const response = await fetch(csvUrl);
+      const csvText = await response.text();
+      
+      // Parse CSV data
+      const lines = csvText.trim().split('\n');
+      const headers = lines[0].split(',');
+      
+      // Find column indices for player data
+      const playerDistanceColumns = ['player1_distance', 'player2_distance', 'player3_distance', 'player4_distance'];
+      const playerVelocityColumns = ['player1_Vnorm', 'player2_Vnorm', 'player3_Vnorm', 'player4_Vnorm'];
+      
+      const distanceIndices = playerDistanceColumns.map(col => 
+        headers.findIndex(header => header.trim().toLowerCase() === col.toLowerCase())
+      ).filter(index => index !== -1);
+      
+      const velocityIndices = playerVelocityColumns.map(col => 
+        headers.findIndex(header => header.trim().toLowerCase() === col.toLowerCase())
+      ).filter(index => index !== -1);
+
+      // Find player_ball_hit column index
+      const ballHitColumnIndex = headers.findIndex(header => 
+        header.trim().toLowerCase() === 'player_ball_hit'
+      );
+
+      // Find ball data column indices
+      const ballDistanceIndex = headers.findIndex(header => 
+        header.trim().toLowerCase() === 'ball_distance'
+      );
+      const ballVelocityIndex = headers.findIndex(header => 
+        header.trim().toLowerCase() === 'ball_vnorm'
+      );
+      const ballAccelerationIndex = headers.findIndex(header => 
+        header.trim().toLowerCase() === 'ball_anorm'
+      );
+      const ballBounceIndex = headers.findIndex(header => 
+        header.trim().toLowerCase() === 'ball_bounce'
+      );
+
+      // Initialize player data arrays
+      const playerDistances: number[][] = Array.from({ length: 4 }, () => []);
+      const playerVelocities: number[][] = Array.from({ length: 4 }, () => []);
+      const playerHitCounts: number[] = [0, 0, 0, 0]; // Count hits for each player
+
+      // Initialize ball data arrays
+      const ballDistances: number[] = [];
+      const ballVelocities: number[] = [];
+      const ballAccelerations: number[] = [];
+      const ballBounces: number[] = [];
+      const ballVelocityOverTime: Array<{time: string, velocity: number, acceleration: number}> = [];
+
+      // Parse data rows
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',');
+        
+        // Extract distance data
+        distanceIndices.forEach((colIndex, playerIndex) => {
+          if (playerIndex < 4) {
+            const distance = parseFloat(values[colIndex]);
+            if (!isNaN(distance)) {
+              playerDistances[playerIndex].push(distance);
+            }
+          }
+        });
+        
+        // Extract velocity data
+        velocityIndices.forEach((colIndex, playerIndex) => {
+          if (playerIndex < 4) {
+            const velocity = parseFloat(values[colIndex]);
+            if (!isNaN(velocity)) {
+              playerVelocities[playerIndex].push(velocity);
+            }
+          }
+        });
+
+        // Count ball hits for each player
+        if (ballHitColumnIndex !== -1 && values[ballHitColumnIndex]) {
+          const playerHit = parseInt(values[ballHitColumnIndex].trim());
+          if (!isNaN(playerHit) && playerHit >= 1 && playerHit <= 4) {
+            playerHitCounts[playerHit - 1]++; // Convert 1-based to 0-based index
+          }
+        }
+
+        // Extract ball data
+        if (ballDistanceIndex !== -1 && values[ballDistanceIndex]) {
+          const distance = parseFloat(values[ballDistanceIndex]);
+          if (!isNaN(distance)) {
+            ballDistances.push(distance);
+          }
+        }
+
+        if (ballVelocityIndex !== -1 && values[ballVelocityIndex]) {
+          const velocity = parseFloat(values[ballVelocityIndex]);
+          if (!isNaN(velocity)) {
+            ballVelocities.push(velocity);
+          }
+        }
+
+        if (ballAccelerationIndex !== -1 && values[ballAccelerationIndex]) {
+          const acceleration = parseFloat(values[ballAccelerationIndex]);
+          if (!isNaN(acceleration)) {
+            ballAccelerations.push(acceleration);
+          }
+        }
+
+        if (ballBounceIndex !== -1 && values[ballBounceIndex]) {
+          const bounce = parseFloat(values[ballBounceIndex]);
+          if (!isNaN(bounce)) {
+            ballBounces.push(bounce);
+          }
+        }
+
+        // Create time series data for ball velocity/acceleration graph (sample every 10th row for performance)
+        if (i % 10 === 0 && ballVelocityIndex !== -1 && ballAccelerationIndex !== -1) {
+          const velocity = parseFloat(values[ballVelocityIndex]);
+          const acceleration = parseFloat(values[ballAccelerationIndex]);
+          if (!isNaN(velocity) && !isNaN(acceleration)) {
+            const timeInSeconds = Math.floor((i - 1) / 30); // Assuming 30 fps
+            const minutes = Math.floor(timeInSeconds / 60);
+            const seconds = timeInSeconds % 60;
+            const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            
+            ballVelocityOverTime.push({
+              time: timeString,
+              velocity: parseFloat(velocity.toFixed(2)),
+              acceleration: parseFloat(acceleration.toFixed(2))
+            });
+          }
+        }
+      }
+
+      // Calculate statistics for each player
+      const playerData: CSVPlayerData[] = [];
+      for (let i = 0; i < 4; i++) {
+        const distances = playerDistances[i];
+        const velocities = playerVelocities[i];
+        
+        const totalDistance = distances.reduce((sum, d) => sum + d, 0);
+        const avgVelocity = velocities.length > 0 ? velocities.reduce((sum, v) => sum + v, 0) / velocities.length : 0;
+        const maxVelocity = velocities.length > 0 ? Math.max(...velocities) : 0;
+        
+        playerData.push({
+          totalDistance,
+          avgVelocity,
+          maxVelocity,
+          hitCount: playerHitCounts[i]
+        });
+      }
+
+      // Calculate ball statistics
+      const ballData: CSVBallData = {
+        totalDistance: ballDistances.reduce((sum, d) => sum + d, 0),
+        avgVelocity: ballVelocities.length > 0 ? ballVelocities.reduce((sum, v) => sum + v, 0) / ballVelocities.length : 0,
+        maxVelocity: ballVelocities.length > 0 ? Math.max(...ballVelocities) : 0,
+        avgAcceleration: ballAccelerations.length > 0 ? ballAccelerations.reduce((sum, a) => sum + a, 0) / ballAccelerations.length : 0,
+        bounceCount: ballBounces.reduce((sum, b) => sum + b, 0),
+        velocityOverTime: ballVelocityOverTime
+      };
+
+      return { players: playerData, ball: ballData };
+    } catch (error) {
+      console.error('Error parsing CSV data:', error);
+      return { 
+        players: [], 
+        ball: { 
+          totalDistance: 0, 
+          avgVelocity: 0, 
+          maxVelocity: 0, 
+          avgAcceleration: 0, 
+          bounceCount: 0, 
+          velocityOverTime: [] 
+        } 
+      };
+    }
+  };
 
   useEffect(() => {
     const fetchMatchData = async () => {
@@ -96,94 +302,83 @@ export const MatchAnalytics = (): JSX.Element => {
         const matchResponse = await apiClient.getMatch(matchId, token);
         setMatch(matchResponse);
         
+        // Parse CSV data if available
+        let csvPlayerData: CSVPlayerData[] = [];
+        let ballData: CSVBallData = { 
+          totalDistance: 0, 
+          avgVelocity: 0, 
+          maxVelocity: 0, 
+          avgAcceleration: 0, 
+          bounceCount: 0, 
+          velocityOverTime: [] 
+        };
+        if (matchResponse.analysis_data_url) {
+          const csvData = await parseCSVData(matchResponse.analysis_data_url);
+          csvPlayerData = csvData.players;
+          ballData = csvData.ball;
+          
+          // Set ball data state
+          setCsvBallData(ballData);
+          
+          // Set ball velocity data for chart
+          if (ballData.velocityOverTime.length > 0) {
+            setBallVelocityData(ballData.velocityOverTime);
+          }
+        }
+        
         // Transform API response to match our interface
-        // For now, using mock data since the backend doesn't return detailed analytics
+        const matchDate = new Date(matchResponse.date);
+        
+        // Create player data using CSV data if available, otherwise use mock data
+        const playersData: PlayerStats[] = [];
+        const playerNames = ["Player 1", "Player 2", "Player 3", "Player 4"];
+        
+        for (let i = 0; i < 4; i++) {
+          const csvData = csvPlayerData[i];
+          const hasRealData = csvData && (csvData.totalDistance > 0 || csvData.avgVelocity > 0);
+          
+          const totalHits = hasRealData ? csvData.hitCount : (120 + Math.floor(Math.random() * 80));
+          const successfulHits = Math.floor(totalHits * (0.8 + Math.random() * 0.15)); // 80-95% success rate
+          
+          playersData.push({
+            name: playerNames[i],
+            team: i < 2 ? 1 : 2, // First 2 players are team 1, last 2 are team 2
+            coveredDistance: hasRealData ? csvData.totalDistance : (2500 + Math.random() * 1000), // fallback mock data
+            avgVelocity: hasRealData ? csvData.avgVelocity : (10 + Math.random() * 5), // fallback mock data
+            maxVelocity: hasRealData ? csvData.maxVelocity : (25 + Math.random() * 10), // fallback mock data
+            totalHits: totalHits,
+            successfulHits: successfulHits,
+            hitAccuracy: totalHits > 0 ? (successfulHits / totalHits) * 100 : (85 + Math.random() * 10), // Calculate accuracy from hits
+            hitAngles: {
+              forehand: 30 + Math.floor(Math.random() * 25),
+              backhand: 25 + Math.floor(Math.random() * 20),
+              volley: 10 + Math.floor(Math.random() * 15),
+              smash: 3 + Math.floor(Math.random() * 8)
+            },
+            heatmapData: []
+          });
+        }
+        
         const transformedMatchData: MatchData = {
           id: matchResponse.id,
-          title: `Match ${matchId}`,
-          date: new Date().toISOString(), // We'll need created_at from backend
+          title: matchResponse.title || matchDate.toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+          }),
+          date: matchResponse.date,
           duration: "1:45:30", // This would come from the backend
           score: "6-4, 6-2", // This would come from the backend
           result: "win" as const,
-          players: [
-            // Mock player data - this would come from analysis_data_url in the future
-            {
-              name: "You",
-              team: 1,
-              coveredDistance: 2847,
-              avgVelocity: 12.3,
-              maxVelocity: 28.5,
-              totalHits: 156,
-              successfulHits: 142,
-              hitAccuracy: 91.0,
-              hitAngles: {
-                forehand: 45,
-                backhand: 32,
-                volley: 18,
-                smash: 5
-              },
-              heatmapData: []
-            },
-            {
-              name: "Partner",
-              team: 1,
-              coveredDistance: 2634,
-              avgVelocity: 11.8,
-              maxVelocity: 26.2,
-              totalHits: 134,
-              successfulHits: 125,
-              hitAccuracy: 93.3,
-              hitAngles: {
-                forehand: 38,
-                backhand: 41,
-                volley: 15,
-                smash: 6
-              },
-              heatmapData: []
-            },
-            {
-              name: "Opponent 1",
-              team: 2,
-              coveredDistance: 3124,
-              avgVelocity: 13.7,
-              maxVelocity: 31.2,
-              totalHits: 178,
-              successfulHits: 159,
-              hitAccuracy: 89.3,
-              hitAngles: {
-                forehand: 52,
-                backhand: 29,
-                volley: 22,
-                smash: 7
-              },
-              heatmapData: []
-            },
-            {
-              name: "Opponent 2",
-              team: 2,
-              coveredDistance: 2892,
-              avgVelocity: 12.9,
-              maxVelocity: 29.8,
-              totalHits: 145,
-              successfulHits: 132,
-              hitAccuracy: 91.0,
-              hitAngles: {
-                forehand: 41,
-                backhand: 35,
-                volley: 19,
-                smash: 4
-              },
-              heatmapData: []
-            }
-          ],
+          players: playersData,
           ballStats: {
-            coveredDistance: 8942,
-            avgVelocity: 35.7,
-            maxVelocity: 89.3,
-            avgAcceleration: 12.4,
-            maxAcceleration: 45.8,
-            totalRallies: 89,
-            avgRallyLength: 8.3
+            coveredDistance: ballData.totalDistance || 8942,
+            avgVelocity: ballData.avgVelocity || 35.7,
+            maxVelocity: ballData.maxVelocity || 89.3,
+            avgAcceleration: ballData.avgAcceleration || 12.4,
+            maxAcceleration: 45.8, // Not calculated from CSV
+            totalRallies: 89, // Not calculated from CSV
+            avgRallyLength: 8.3 // Not calculated from CSV
           }
         };
         
@@ -226,38 +421,56 @@ export const MatchAnalytics = (): JSX.Element => {
 
   // Chart data
   const velocityOverTime = [
-    { time: '0:00', you: 12, partner: 11, opponent1: 14, opponent2: 13 },
-    { time: '0:15', you: 13, partner: 12, opponent1: 15, opponent2: 14 },
-    { time: '0:30', you: 14, partner: 13, opponent1: 13, opponent2: 12 },
-    { time: '0:45', you: 12, partner: 11, opponent1: 16, opponent2: 15 },
-    { time: '1:00', you: 15, partner: 14, opponent1: 14, opponent2: 13 },
-    { time: '1:15', you: 13, partner: 12, opponent1: 12, opponent2: 11 },
+    { 
+      time: '0:00', 
+      [matchData.players[0].name]: parseFloat((matchData.players[0].avgVelocity * 0.9).toFixed(2)), 
+      [matchData.players[1].name]: parseFloat((matchData.players[1].avgVelocity * 0.8).toFixed(2)), 
+      [matchData.players[2].name]: parseFloat((matchData.players[2].avgVelocity * 1.1).toFixed(2)), 
+      [matchData.players[3].name]: parseFloat((matchData.players[3].avgVelocity * 1.0).toFixed(2)) 
+    },
+    { 
+      time: '0:15', 
+      [matchData.players[0].name]: parseFloat((matchData.players[0].avgVelocity * 1.1).toFixed(2)), 
+      [matchData.players[1].name]: parseFloat((matchData.players[1].avgVelocity * 1.0).toFixed(2)), 
+      [matchData.players[2].name]: parseFloat((matchData.players[2].avgVelocity * 1.2).toFixed(2)), 
+      [matchData.players[3].name]: parseFloat((matchData.players[3].avgVelocity * 1.1).toFixed(2)) 
+    },
+    { 
+      time: '0:30', 
+      [matchData.players[0].name]: parseFloat((matchData.players[0].avgVelocity * 1.2).toFixed(2)), 
+      [matchData.players[1].name]: parseFloat((matchData.players[1].avgVelocity * 1.1).toFixed(2)), 
+      [matchData.players[2].name]: parseFloat((matchData.players[2].avgVelocity * 0.9).toFixed(2)), 
+      [matchData.players[3].name]: parseFloat((matchData.players[3].avgVelocity * 0.8).toFixed(2)) 
+    },
+    { 
+      time: '0:45', 
+      [matchData.players[0].name]: parseFloat((matchData.players[0].avgVelocity * 0.8).toFixed(2)), 
+      [matchData.players[1].name]: parseFloat((matchData.players[1].avgVelocity * 0.9).toFixed(2)), 
+      [matchData.players[2].name]: parseFloat((matchData.players[2].avgVelocity * 1.3).toFixed(2)), 
+      [matchData.players[3].name]: parseFloat((matchData.players[3].avgVelocity * 1.2).toFixed(2)) 
+    },
+    { 
+      time: '1:00', 
+      [matchData.players[0].name]: parseFloat((matchData.players[0].avgVelocity * 1.3).toFixed(2)), 
+      [matchData.players[1].name]: parseFloat((matchData.players[1].avgVelocity * 1.2).toFixed(2)), 
+      [matchData.players[2].name]: parseFloat((matchData.players[2].avgVelocity * 1.0).toFixed(2)), 
+      [matchData.players[3].name]: parseFloat((matchData.players[3].avgVelocity * 0.9).toFixed(2)) 
+    },
+    { 
+      time: '1:15', 
+      [matchData.players[0].name]: parseFloat((matchData.players[0].avgVelocity * 1.0).toFixed(2)), 
+      [matchData.players[1].name]: parseFloat((matchData.players[1].avgVelocity * 0.9).toFixed(2)), 
+      [matchData.players[2].name]: parseFloat((matchData.players[2].avgVelocity * 0.8).toFixed(2)), 
+      [matchData.players[3].name]: parseFloat((matchData.players[3].avgVelocity * 0.7).toFixed(2)) 
+    },
   ];
 
-  const hitTypeData = matchData.players.map(player => ({
+  const playerHitsData = matchData.players.map(player => ({
     name: player.name,
-    forehand: player.hitAngles.forehand,
-    backhand: player.hitAngles.backhand,
-    volley: player.hitAngles.volley,
-    smash: player.hitAngles.smash
+    hits: player.totalHits
   }));
 
-  const ballVelocityData = [
-    { time: '0:00', velocity: 32, acceleration: 10 },
-    { time: '0:15', velocity: 38, acceleration: 15 },
-    { time: '0:30', velocity: 45, acceleration: 20 },
-    { time: '0:45', velocity: 52, acceleration: 18 },
-    { time: '1:00', velocity: 41, acceleration: 12 },
-    { time: '1:15', velocity: 35, acceleration: 8 },
-  ];
 
-  const radarData = matchData.players.map(player => ({
-    player: player.name,
-    Distance: (player.coveredDistance / 3500) * 100,
-    Velocity: (player.avgVelocity / 20) * 100,
-    Accuracy: player.hitAccuracy,
-    Hits: (player.totalHits / 200) * 100,
-  }));
 
   const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
 
@@ -276,10 +489,6 @@ export const MatchAnalytics = (): JSX.Element => {
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{matchData.title}</h1>
             <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-300">
               <span>{new Date(matchData.date).toLocaleDateString()}</span>
-              <span>{matchData.duration}</span>
-              <Badge className={matchData.result === "win" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>
-                {matchData.result.toUpperCase()} {matchData.score}
-              </Badge>
             </div>
           </div>
         </div>
@@ -292,6 +501,7 @@ export const MatchAnalytics = (): JSX.Element => {
             <Play className="h-4 w-4 mr-2" />
             Watch Replay
           </Button>
+
           <Button variant="outline">
             <Download className="h-4 w-4 mr-2" />
             Export Data
@@ -301,17 +511,17 @@ export const MatchAnalytics = (): JSX.Element => {
 
       {/* Navigation Tabs */}
       <div className="flex space-x-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-        {[
-          { id: "overview", label: "Overview", icon: BarChart3 },
-          { id: "players", label: "Player Stats", icon: Users },
-          { id: "ball", label: "Ball Analytics", icon: Target },
-          { id: "heatmap", label: "Court Heatmap", icon: MapPin }
-        ].map((tab) => {
+        {([
+          { id: "overview" as const, label: "Overview", icon: BarChart3 },
+          { id: "players" as const, label: "Player Stats", icon: Users },
+          { id: "ball" as const, label: "Ball Analytics", icon: Target },
+          { id: "heatmap" as const, label: "Court Heatmap", icon: MapPin }
+        ] as const).map((tab) => {
           const Icon = tab.icon;
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => setActiveTab(tab.id)}
               className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                 activeTab === tab.id
                   ? "bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm"
@@ -327,7 +537,29 @@ export const MatchAnalytics = (): JSX.Element => {
 
       {/* Content based on active tab */}
       {activeTab === "overview" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-6">
+          {/* Annotated Video Player */}
+          {match?.annotated_video_url && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Annotated Match Replay</CardTitle>
+              </CardHeader>
+              <CardContent>
+                              <div className="flex justify-center">
+                <div className="aspect-video w-full max-w-4xl">
+                    <EmbeddedVideoPlayer
+                      videoUrl={match.annotated_video_url}
+                      title="Annotated Match Replay"
+                      className="w-full h-full"
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Analytics Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Match Summary */}
           <Card>
             <CardHeader>
@@ -339,13 +571,13 @@ export const MatchAnalytics = (): JSX.Element => {
                   <div>
                     <p className="text-sm text-gray-600 dark:text-gray-400">Total Distance</p>
                     <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                      {(matchData.players.reduce((sum, p) => sum + p.coveredDistance, 0) / 1000).toFixed(1)} km
+                      {(matchData.players.reduce((sum, p) => sum + p.coveredDistance, 0)).toFixed(2)} m
                     </p>
                   </div>
                   <div>
                     <p className="text-sm text-gray-600 dark:text-gray-400">Ball Distance</p>
                     <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                      {(matchData.ballStats.coveredDistance / 1000).toFixed(1)} km
+                      {(matchData.ballStats.coveredDistance).toFixed(2)} m
                     </p>
                   </div>
                   <div>
@@ -353,8 +585,8 @@ export const MatchAnalytics = (): JSX.Element => {
                     <p className="text-2xl font-bold text-gray-900 dark:text-white">{matchData.ballStats.totalRallies}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Avg Rally Length</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{matchData.ballStats.avgRallyLength}s</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Total Ball Hits</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{matchData.players.reduce((sum, player) => sum + player.totalHits, 0)}</p>
                   </div>
                 </div>
               </div>
@@ -369,62 +601,113 @@ export const MatchAnalytics = (): JSX.Element => {
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={velocityOverTime}>
-                  <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="time" />
                   <YAxis />
                   <Tooltip />
-                  <Line type="monotone" dataKey="you" stroke="#3B82F6" strokeWidth={2} name="You" />
-                  <Line type="monotone" dataKey="partner" stroke="#10B981" strokeWidth={2} name="Partner" />
-                  <Line type="monotone" dataKey="opponent1" stroke="#F59E0B" strokeWidth={2} name="Opponent 1" />
-                  <Line type="monotone" dataKey="opponent2" stroke="#EF4444" strokeWidth={2} name="Opponent 2" />
+                  <Line type="monotone" dataKey={matchData.players[0].name} stroke="#3B82F6" strokeWidth={2} name={matchData.players[0].name} />
+                  <Line type="monotone" dataKey={matchData.players[1].name} stroke="#10B981" strokeWidth={2} name={matchData.players[1].name} />
+                  <Line type="monotone" dataKey={matchData.players[2].name} stroke="#F59E0B" strokeWidth={2} name={matchData.players[2].name} />
+                  <Line type="monotone" dataKey={matchData.players[3].name} stroke="#EF4444" strokeWidth={2} name={matchData.players[3].name} />
                 </LineChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
 
-          {/* Hit Types Distribution */}
+          {/* Player Hits Distribution */}
           <Card>
             <CardHeader>
-              <CardTitle>Hit Types by Player</CardTitle>
+              <CardTitle>Player Hits</CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={hitTypeData}>
-                  <CartesianGrid strokeDasharray="3 3" />
+                <BarChart data={playerHitsData}>
                   <XAxis dataKey="name" />
                   <YAxis />
                   <Tooltip />
-                  <Bar dataKey="forehand" stackId="a" fill="#3B82F6" name="Forehand" />
-                  <Bar dataKey="backhand" stackId="a" fill="#10B981" name="Backhand" />
-                  <Bar dataKey="volley" stackId="a" fill="#F59E0B" name="Volley" />
-                  <Bar dataKey="smash" stackId="a" fill="#EF4444" name="Smash" />
+                  <Bar dataKey="hits" fill="#3B82F6" name="Total Hits" />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
-
-          {/* Player Performance Radar */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Player Performance Comparison</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <RadarChart data={radarData[0] ? [radarData[0]] : []}>
-                  <PolarGrid />
-                  <PolarAngleAxis dataKey="subject" />
-                  <PolarRadiusAxis angle={90} domain={[0, 100]} />
-                  <Radar name="Performance" dataKey="Distance" stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.6} />
-                </RadarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+          </div>
         </div>
       )}
 
       {activeTab === "players" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {matchData.players.map((player, index) => (
+        <div className="space-y-6">
+          {/* Aggregated Player Statistics */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <MapPin className="h-8 w-8 text-blue-600 mr-3" />
+                  <div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Total Distance Covered</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {(matchData.players.reduce((sum, player) => sum + player.coveredDistance, 0)).toFixed(2)} m
+                    </p>
+                    <p className="text-xs text-gray-500">All players combined</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <Zap className="h-8 w-8 text-yellow-600 mr-3" />
+                  <div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Average Velocity</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {(matchData.players.reduce((sum, player) => sum + player.avgVelocity, 0) / matchData.players.length).toFixed(2)} m/s
+                    </p>
+                    <p className="text-xs text-gray-500">Across all players</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <TrendingUp className="h-8 w-8 text-green-600 mr-3" />
+                  <div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Maximum Velocity</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {Math.max(...matchData.players.map(player => player.maxVelocity)).toFixed(2)} m/s
+                    </p>
+                    <p className="text-xs text-gray-500">Highest recorded speed</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Player Velocity Over Time Graph */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Player Velocity Over Time</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={velocityOverTime}>
+                  <XAxis dataKey="time" />
+                  <YAxis />
+                  <Tooltip />
+                  <Line type="monotone" dataKey={matchData.players[0].name} stroke="#3B82F6" strokeWidth={2} name={matchData.players[0].name} />
+                  <Line type="monotone" dataKey={matchData.players[1].name} stroke="#10B981" strokeWidth={2} name={matchData.players[1].name} />
+                  <Line type="monotone" dataKey={matchData.players[2].name} stroke="#F59E0B" strokeWidth={2} name={matchData.players[2].name} />
+                  <Line type="monotone" dataKey={matchData.players[3].name} stroke="#EF4444" strokeWidth={2} name={matchData.players[3].name} />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          {/* Individual Player Statistics */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Individual Player Statistics</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {matchData.players.map((player, index) => (
             <Card key={index}>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
@@ -440,46 +723,36 @@ export const MatchAnalytics = (): JSX.Element => {
                         <MapPin className="h-4 w-4 mr-2 text-blue-600" />
                         <span className="text-sm text-gray-600 dark:text-gray-400">Distance Covered</span>
                       </div>
-                      <p className="text-xl font-bold text-gray-900 dark:text-white">{(player.coveredDistance / 1000).toFixed(2)} km</p>
+                      <p className="text-xl font-bold text-gray-900 dark:text-white">{player.coveredDistance.toFixed(2)} m</p>
                     </div>
                     <div>
                       <div className="flex items-center">
                         <Zap className="h-4 w-4 mr-2 text-yellow-600" />
                         <span className="text-sm text-gray-600 dark:text-gray-400">Avg Velocity</span>
                       </div>
-                      <p className="text-xl font-bold text-gray-900 dark:text-white">{player.avgVelocity} km/h</p>
+                      <p className="text-xl font-bold text-gray-900 dark:text-white">{player.avgVelocity.toFixed(2)} m/s</p>
                     </div>
                     <div>
                       <div className="flex items-center">
                         <TrendingUp className="h-4 w-4 mr-2 text-green-600" />
                         <span className="text-sm text-gray-600 dark:text-gray-400">Max Velocity</span>
                       </div>
-                      <p className="text-xl font-bold text-gray-900 dark:text-white">{player.maxVelocity} km/h</p>
+                      <p className="text-xl font-bold text-gray-900 dark:text-white">{player.maxVelocity.toFixed(2)} m/s</p>
                     </div>
                     <div>
                       <div className="flex items-center">
                         <Target className="h-4 w-4 mr-2 text-purple-600" />
-                        <span className="text-sm text-gray-600 dark:text-gray-400">Hit Accuracy</span>
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Total Hits</span>
                       </div>
-                      <p className="text-xl font-bold text-gray-900 dark:text-white">{player.hitAccuracy}%</p>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <h4 className="font-medium text-gray-900 dark:text-white mb-2">Hit Breakdown</h4>
-                    <div className="space-y-2">
-                      {Object.entries(player.hitAngles).map(([type, count]) => (
-                        <div key={type} className="flex justify-between">
-                          <span className="text-sm text-gray-600 dark:text-gray-400 capitalize">{type}</span>
-                          <span className="text-sm font-medium text-gray-900 dark:text-white">{count} hits</span>
-                        </div>
-                      ))}
+                      <p className="text-xl font-bold text-gray-900 dark:text-white">{player.totalHits}</p>
                     </div>
                   </div>
                 </div>
               </CardContent>
             </Card>
           ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -493,7 +766,7 @@ export const MatchAnalytics = (): JSX.Element => {
                   <div>
                     <p className="text-sm text-gray-600 dark:text-gray-400">Distance Covered</p>
                     <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                      {(matchData.ballStats.coveredDistance / 1000).toFixed(1)} km
+                      {(matchData.ballStats.coveredDistance).toFixed(2)} m
                     </p>
                   </div>
                 </div>
@@ -506,7 +779,7 @@ export const MatchAnalytics = (): JSX.Element => {
                   <Zap className="h-8 w-8 text-yellow-600 mr-3" />
                   <div>
                     <p className="text-sm text-gray-600 dark:text-gray-400">Avg Velocity</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{matchData.ballStats.avgVelocity} km/h</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{matchData.ballStats.avgVelocity.toFixed(2)} m/s</p>
                   </div>
                 </div>
               </CardContent>
@@ -518,7 +791,7 @@ export const MatchAnalytics = (): JSX.Element => {
                   <TrendingUp className="h-8 w-8 text-green-600 mr-3" />
                   <div>
                     <p className="text-sm text-gray-600 dark:text-gray-400">Max Velocity</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{matchData.ballStats.maxVelocity} km/h</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{matchData.ballStats.maxVelocity.toFixed(2)} m/s</p>
                   </div>
                 </div>
               </CardContent>
@@ -530,7 +803,22 @@ export const MatchAnalytics = (): JSX.Element => {
                   <Activity className="h-8 w-8 text-purple-600 mr-3" />
                   <div>
                     <p className="text-sm text-gray-600 dark:text-gray-400">Avg Acceleration</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{matchData.ballStats.avgAcceleration} m/s²</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{matchData.ballStats.avgAcceleration.toFixed(2)} m/s²</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Ball Bounce Count */}
+          <div className="mt-6">
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <Target className="h-8 w-8 text-orange-600 mr-3" />
+                  <div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Ball Bounce Count</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{csvBallData.bounceCount}</p>
                   </div>
                 </div>
               </CardContent>
@@ -545,7 +833,6 @@ export const MatchAnalytics = (): JSX.Element => {
             <CardContent>
               <ResponsiveContainer width="100%" height={400}>
                 <LineChart data={ballVelocityData}>
-                  <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="time" />
                   <YAxis yAxisId="velocity" orientation="left" />
                   <YAxis yAxisId="acceleration" orientation="right" />
@@ -556,7 +843,7 @@ export const MatchAnalytics = (): JSX.Element => {
                     dataKey="velocity" 
                     stroke="#3B82F6" 
                     strokeWidth={3}
-                    name="Velocity (km/h)"
+                    name="Velocity (m/s)"
                   />
                   <Line 
                     yAxisId="acceleration"
@@ -603,6 +890,8 @@ export const MatchAnalytics = (): JSX.Element => {
         videoUrl={match?.video_url || ''}
         title={matchData?.title || 'Match Replay'}
       />
+
+
     </div>
   );
 }; 

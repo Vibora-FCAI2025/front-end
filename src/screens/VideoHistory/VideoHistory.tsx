@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/ca
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
-import { Play, Download, Search, Filter, Calendar, User, Upload, FileText, RefreshCw } from "lucide-react";
+import { Play, Download, Search, Filter, Calendar, Upload, FileText, RefreshCw } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiClient, MatchResponse } from "../../lib/api";
 
@@ -51,13 +51,20 @@ export const VideoHistory = (): JSX.Element => {
       setMatchHistory(history);
       
       // Transform API response to match our interface
-      const transformedVideos: MatchVideo[] = history.map((match, index) => ({
-        id: match.id,
-        title: `Match ${index + 1}`, // We can add match titles later when backend supports it
-        opponent: "Opponent", // This would come from the backend later
-        date: new Date().toISOString(), // We'll need to add created_at to backend response
+      const transformedVideos: MatchVideo[] = history.map((match, index) => {
+        const matchDate = new Date(match.date);
+        
+        return {
+          id: match.id,
+          title: match.title || matchDate.toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+          }),
+          opponent: "Opponent", // This would come from the backend later
+          date: match.date,
         duration: "1:30:00", // This would come from the backend
-        thumbnail: match.video_url, // Use actual video URL instead of placeholder
+        thumbnail: match.match_screenshot_url || "", // Use screenshot or empty for placeholder
         status: match.status === "finished" ? "processed" : 
                 match.status === "processing" ? "processing" : 
                 match.status === "queued" ? "queued" :
@@ -69,7 +76,8 @@ export const VideoHistory = (): JSX.Element => {
           accuracy: 87,
           rallies: 142,
         },
-      }));
+      };
+    });
       
       setVideos(transformedVideos);
     } catch (err) {
@@ -188,7 +196,7 @@ export const VideoHistory = (): JSX.Element => {
                 <option value="pending">Pending</option>
                 <option value="queued">Queued</option>
                 <option value="processing">Processing</option>
-                <option value="finished">Finished</option>
+                <option value="processed">Processed</option>
               </select>
             </div>
           </div>
@@ -208,44 +216,30 @@ export const VideoHistory = (): JSX.Element => {
             title="Click to view match details and analytics"
           >
             <div className="relative">
-              <video
-                src={video.thumbnail}
-                className="w-full h-48 object-cover transition-transform hover:scale-105"
-                preload="metadata"
-                muted
-                loop
-                onMouseEnter={(e) => {
-                  const target = e.target as HTMLVideoElement;
-                  target.currentTime = 5; // Start at 5 seconds for better preview
-                  if (video.status === "processed") {
-                    target.play().catch(() => {
-                      // Ignore play errors (e.g., if autoplay is blocked)
-                    });
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  const target = e.target as HTMLVideoElement;
-                  target.pause();
-                  target.currentTime = 5; // Reset to preview position
-                }}
-                onError={(e) => {
-                  // Fallback to a placeholder if video fails to load
-                  const target = e.target as HTMLVideoElement;
-                  target.style.display = 'none';
-                  const fallback = target.nextElementSibling as HTMLDivElement;
-                  if (fallback && fallback.classList.contains('video-fallback')) {
-                    fallback.style.display = 'flex';
-                  }
-                }}
-                poster={`${video.thumbnail}#t=5`} // Video poster at 5 seconds
-              />
+              {video.thumbnail ? (
+                <img
+                  src={video.thumbnail}
+                  alt={`Match screenshot for ${video.title}`}
+                  className="w-full h-48 object-cover transition-transform hover:scale-105"
+                  onError={(e) => {
+                    // If screenshot fails to load, show fallback div
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                    const fallback = target.nextElementSibling as HTMLDivElement;
+                    if (fallback && fallback.classList.contains('screenshot-fallback')) {
+                      fallback.style.display = 'flex';
+                    }
+                  }}
+                />
+              ) : null}
               <div 
-                className="video-fallback w-full h-48 bg-gradient-to-br from-blue-100 to-gray-100 dark:from-gray-800 dark:to-gray-900 flex items-center justify-center text-gray-500 dark:text-gray-400"
-                style={{ display: 'none' }}
+                className="screenshot-fallback w-full h-48 bg-gradient-to-br from-blue-100 to-gray-100 dark:from-gray-800 dark:to-gray-900 flex items-center justify-center text-gray-500 dark:text-gray-400"
+                style={{ display: video.thumbnail ? 'none' : 'flex' }}
               >
                 <div className="text-center">
                   <Play className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">Video Preview</p>
+                  <p className="text-sm">Match Screenshot</p>
+                  <p className="text-xs mt-1 opacity-75">No screenshot available</p>
                 </div>
               </div>
               <div className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
@@ -291,9 +285,7 @@ export const VideoHistory = (): JSX.Element => {
                   {video.status}
                 </Badge>
               </div>
-              <div className="absolute bottom-2 right-2 bg-black bg-opacity-75 text-white px-2 py-1 rounded text-sm">
-                {video.duration}
-              </div>
+
             </div>
             
             <CardContent className="p-4">
@@ -301,23 +293,12 @@ export const VideoHistory = (): JSX.Element => {
               
               <div className="space-y-2 text-sm text-muted-foreground">
                 <div className="flex items-center">
-                  <User className="h-4 w-4 mr-2" />
-                  vs {video.opponent}
-                </div>
-                <div className="flex items-center">
                   <Calendar className="h-4 w-4 mr-2" />
                   {new Date(video.date).toLocaleDateString()}
                 </div>
               </div>
 
-              <div className="flex items-center justify-between mt-3">
-                <Badge className={getResultColor(video.result)}>
-                  {video.result.toUpperCase()}
-                </Badge>
-                <span className="text-sm font-medium">
-                  {video.score}
-                </span>
-              </div>
+
 
               {video.status === "processed" && (
                 <div className="mt-4 pt-4 border-t">

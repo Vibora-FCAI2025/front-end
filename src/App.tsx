@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { LandingPage } from "./screens/LandingPage";
@@ -14,6 +14,28 @@ import { MatchAnalytics } from "./screens/MatchAnalytics";
 import { ReportGeneration } from "./screens/ReportGeneration";
 import { ErrorPage } from "./screens/ErrorPage";
 import { Layout } from "./components/Layout";
+import { useEffect } from "react";
+
+// Component to protect routes and check token expiration
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user, token, isTokenExpired, logout } = useAuth();
+  const location = useLocation();
+
+  useEffect(() => {
+    // Check token expiration whenever the route changes
+    if (user && token && isTokenExpired()) {
+      console.log('Token expired on route change, redirecting to login');
+      logout();
+    }
+  }, [location.pathname, user, token, isTokenExpired, logout]);
+
+  // If no user or token is expired, redirect to login
+  if (!user || (token && isTokenExpired())) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+};
 
 export const App = (): JSX.Element => {
   const { user, loading } = useAuth();
@@ -36,7 +58,11 @@ export const App = (): JSX.Element => {
         <Route path="/verify-otp" element={!user ? <OTPVerification /> : <Navigate to="/dashboard" />} />
         
         {/* Protected routes */}
-        <Route path="/" element={user ? <Layout /> : <Navigate to="/landing" />}>
+        <Route path="/" element={
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
+        }>
           <Route index element={<Navigate to="/dashboard" />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="upload" element={<VideoUpload />} />

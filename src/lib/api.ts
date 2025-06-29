@@ -34,6 +34,7 @@ export interface MatchAnalysisRequest {
 
 export interface AnalyzeRequest {
   video_id: string;
+  title: string;
   keypoints: number[][];
 }
 
@@ -44,8 +45,11 @@ export interface MatchStatusUpdate {
 
 export interface MatchResponse {
   id: string;
+  title: string;
   status: string;
+  date: string;
   video_url: string;
+  match_screenshot_url?: string;
   annotated_video_url?: string;
   analysis_data_url?: string;
 }
@@ -55,12 +59,24 @@ export interface UploadResponse {
   video_id: string;
 }
 
+// Import JWT utilities
+import { isTokenExpired } from './utils';
+
+// Define a type for the token expiration callback
+export type TokenExpiredCallback = () => void;
+
 // API Client
 class ApiClient {
   private baseURL: string;
+  private onTokenExpired: TokenExpiredCallback | null = null;
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
+  }
+
+  // Method to set the token expiration callback
+  public setTokenExpiredCallback(callback: TokenExpiredCallback): void {
+    this.onTokenExpired = callback;
   }
 
   private async request<T>(
@@ -76,7 +92,32 @@ class ApiClient {
       ...options,
     };
 
+    // Check if this is an authenticated request
+    const headers = config.headers as Record<string, string>;
+    const authHeader = headers?.['Authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.replace('Bearer ', '');
+      
+      // Check if token is expired before making the request
+      if (isTokenExpired(token)) {
+        console.log('Token expired before making request');
+        if (this.onTokenExpired) {
+          this.onTokenExpired();
+        }
+        throw new Error('Token expired');
+      }
+    }
+
     const response = await fetch(url, config);
+    
+    // Handle 401 Unauthorized responses (token expired or invalid)
+    if (response.status === 401) {
+      console.log('Received 401 response, token may be expired');
+      if (this.onTokenExpired) {
+        this.onTokenExpired();
+      }
+      throw new Error('Authentication failed - token expired or invalid');
+    }
     
     if (!response.ok) {
       // Try to get error details from response body
