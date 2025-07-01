@@ -3,7 +3,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
-import { SocialLoginButtons } from "../../components/SocialLoginButtons";
 import { useAuth } from "../../contexts/AuthContext";
 
 export const SignupPage = (): JSX.Element => {
@@ -164,8 +163,6 @@ export const SignupPage = (): JSX.Element => {
                     {isLoading ? "Creating Account..." : "Sign Up Now"}
                   </Button>
                 </form>
-
-                <SocialLoginButtons />
 
                 <div className="text-center mt-6">
                   <p className="text-gray-300">
