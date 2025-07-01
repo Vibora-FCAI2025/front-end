@@ -165,12 +165,6 @@ export const VideoHistory = (): JSX.Element => {
               <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
               {refreshing ? 'Refreshing...' : 'Refresh'}
             </Button>
-            <Link to="/reports">
-              <Button>
-                <FileText className="mr-2 h-4 w-4" />
-                Generate Report
-              </Button>
-            </Link>
           </div>
         </div>
       </div>

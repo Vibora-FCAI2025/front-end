@@ -1225,13 +1225,7 @@ export const MatchAnalytics = (): JSX.Element => {
             )}
           </Button>
 
-          <Button 
-            variant="outline"
-            disabled={isAnalysisNotAvailable}
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Export Data
-          </Button>
+
         </div>
       </div>
 
