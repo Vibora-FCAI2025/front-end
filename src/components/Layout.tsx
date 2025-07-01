@@ -28,7 +28,6 @@ export const Layout = (): JSX.Element => {
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { name: "Upload Video", href: "/upload", icon: Upload },
     { name: "Video History", href: "/history", icon: History },
-    { name: "Reports", href: "/reports", icon: FileText },
     { name: "Profile", href: "/profile", icon: User },
   ];
 
