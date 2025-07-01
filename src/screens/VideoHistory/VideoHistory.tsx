@@ -4,9 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/ca
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
-import { Play, Download, Search, Filter, Calendar, Upload, FileText, RefreshCw } from "lucide-react";
+import { Play, Search, Filter, Calendar, Upload, FileText, RefreshCw } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
-import { apiClient, MatchResponse } from "../../lib/api";
+import { apiClient, MatchResponse, PaginatedMatchResponse, PaginationInfo } from "../../lib/api";
 
 interface MatchVideo {
   id: string;
@@ -18,11 +18,6 @@ interface MatchVideo {
   status: "processed" | "processing" | "failed" | "pending" | "queued";
   result: "win" | "loss" | "draw";
   score: string;
-  analytics: {
-    shotSpeed: number;
-    accuracy: number;
-    rallies: number;
-  };
 }
 
 export const VideoHistory = (): JSX.Element => {
@@ -30,13 +25,15 @@ export const VideoHistory = (): JSX.Element => {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [videos, setVideos] = useState<MatchVideo[]>([]);
   const [matchHistory, setMatchHistory] = useState<MatchResponse[]>([]);
+  const [pagination, setPagination] = useState<PaginationInfo | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const { token } = useAuth();
   const navigate = useNavigate();
 
-  const fetchMatchHistory = async (isRefresh = false) => {
+  const fetchMatchHistory = async (page = 1, isRefresh = false) => {
     if (!token) return;
     
     try {
@@ -47,11 +44,13 @@ export const VideoHistory = (): JSX.Element => {
       }
       setError("");
       
-      const history = await apiClient.getMatchHistory(token);
-      setMatchHistory(history);
+      const response = await apiClient.getMatchHistory(token, page, 12);
+      setMatchHistory(response.matches);
+      setPagination(response.pagination);
+      setCurrentPage(page);
       
       // Transform API response to match our interface
-      const transformedVideos: MatchVideo[] = history.map((match, index) => {
+      const transformedVideos: MatchVideo[] = response.matches.map((match, index) => {
         const matchDate = new Date(match.date);
         
         return {
@@ -71,11 +70,6 @@ export const VideoHistory = (): JSX.Element => {
                 match.status === "pending" ? "pending" : "failed",
         result: "win" as const, // This would come from the backend
         score: "6-4, 6-2", // This would come from the backend
-        analytics: {
-          shotSpeed: 95,
-          accuracy: 87,
-          rallies: 142,
-        },
       };
     });
       
@@ -90,8 +84,16 @@ export const VideoHistory = (): JSX.Element => {
   };
 
   useEffect(() => {
-    fetchMatchHistory();
+    fetchMatchHistory(1);
   }, [token]);
+
+  const handlePageChange = (page: number) => {
+    fetchMatchHistory(page);
+  };
+
+  const handleRefresh = () => {
+    fetchMatchHistory(currentPage, true);
+  };
 
   const filteredVideos = videos.filter(video => {
     const matchesSearch = video.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -157,7 +159,7 @@ export const VideoHistory = (): JSX.Element => {
           <div className="flex space-x-2">
             <Button 
               variant="outline" 
-              onClick={() => fetchMatchHistory(true)}
+              onClick={handleRefresh}
               disabled={refreshing}
             >
               <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -282,7 +284,7 @@ export const VideoHistory = (): JSX.Element => {
               </div>
               <div className="absolute top-2 right-2">
                 <Badge className={getStatusColor(video.status)}>
-                  {video.status}
+                  {video.status.charAt(0).toUpperCase() + video.status.slice(1)}
                 </Badge>
               </div>
 
@@ -300,47 +302,99 @@ export const VideoHistory = (): JSX.Element => {
 
 
 
-              {video.status === "processed" && (
-                <div className="mt-4 pt-4 border-t">
-                  <div className="grid grid-cols-3 gap-2 text-center text-sm">
-                    <div>
-                      <p className="font-medium">{video.analytics.shotSpeed}</p>
-                      <p className="text-muted-foreground">km/h</p>
-                    </div>
-                    <div>
-                      <p className="font-medium">{video.analytics.accuracy}%</p>
-                      <p className="text-muted-foreground">Accuracy</p>
-                    </div>
-                    <div>
-                      <p className="font-medium">{video.analytics.rallies}</p>
-                      <p className="text-muted-foreground">Rallies</p>
-                    </div>
-                  </div>
-
-                  <div className="flex space-x-2 mt-4">
-                    <Link to={`/analytics/${video.id}`} className="flex-1" onClick={(e) => e.stopPropagation()}>
-                      <Button size="sm" className="w-full">
-                  View Analytics
-                </Button>
-                    </Link>
-                    <a 
-                      href={matchHistory.find((m: MatchResponse) => m.id === video.id)?.video_url} 
-                      download
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Button size="sm" variant="outline">
-                        <Download className="h-4 w-4" />
-                      </Button>
-                    </a>
-                  </div>
-                </div>
-              )}
+              <div className="mt-4 pt-4 border-t">
+                {video.status === "processed" ? (
+                  <Link to={`/analytics/${video.id}`} className="w-full" onClick={(e) => e.stopPropagation()}>
+                    <Button size="sm" className="w-full">
+                      View Analytics
+                    </Button>
+                  </Link>
+                ) : (
+                  <Button size="sm" disabled className="w-full">
+                    {video.status === "processing" && (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
+                        Processing
+                      </>
+                    )}
+                    {video.status === "pending" && (
+                      <>
+                        <div className="animate-pulse h-4 w-4 bg-current rounded mr-2"></div>
+                        Pending
+                      </>
+                    )}
+                    {video.status === "queued" && (
+                      <>
+                        <div className="animate-bounce h-4 w-4 bg-current rounded mr-2"></div>
+                        Queued
+                      </>
+                    )}
+                    {video.status === "failed" && "Failed"}
+                  </Button>
+                )}
+              </div>
             </CardContent>
           </Card>
         ))}
       </div>
+
+      {/* Pagination Controls */}
+      {pagination && pagination.total_pages > 1 && (
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-muted-foreground">
+                Showing {((pagination.page - 1) * pagination.limit) + 1} to{' '}
+                {Math.min(pagination.page * pagination.limit, pagination.total_items)} of{' '}
+                {pagination.total_items} matches
+              </div>
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={!pagination.has_previous || loading}
+                >
+                  Previous
+                </Button>
+                
+                <div className="flex items-center space-x-1">
+                  {Array.from({ length: Math.min(5, pagination.total_pages) }, (_, i) => {
+                    const pageNumber = Math.max(1, Math.min(
+                      pagination.total_pages - 4,
+                      Math.max(1, currentPage - 2)
+                    )) + i;
+                    
+                    if (pageNumber > pagination.total_pages) return null;
+                    
+                    return (
+                      <Button
+                        key={pageNumber}
+                        variant={pageNumber === currentPage ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => handlePageChange(pageNumber)}
+                        disabled={loading}
+                        className="w-10"
+                      >
+                        {pageNumber}
+                      </Button>
+                    );
+                  })}
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={!pagination.has_next || loading}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {filteredVideos.length === 0 && !loading && (
         <Card>

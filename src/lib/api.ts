@@ -26,6 +26,23 @@ export interface OTPVerify {
   otp: string;
 }
 
+export interface ChangePassword {
+  current_password: string;
+  new_password: string;
+  confirm_password: string;
+}
+
+export interface ForgotPassword {
+  email: string;
+}
+
+export interface ResetPassword {
+  email: string;
+  otp: string;
+  new_password: string;
+  confirm_password: string;
+}
+
 export interface MatchAnalysisRequest {
   video_id: string;
   title?: string;
@@ -57,6 +74,20 @@ export interface MatchResponse {
 export interface UploadResponse {
   upload_url: string;
   video_id: string;
+}
+
+export interface PaginationInfo {
+  page: number;
+  limit: number;
+  total_items: number;
+  total_pages: number;
+  has_next: boolean;
+  has_previous: boolean;
+}
+
+export interface PaginatedMatchResponse {
+  matches: MatchResponse[];
+  pagination: PaginationInfo;
 }
 
 // Import JWT utilities
@@ -156,6 +187,31 @@ class ApiClient {
     });
   }
 
+  async changePassword(passwordData: ChangePassword, token: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>('/auth/change-password', {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(passwordData),
+    });
+  }
+
+  async forgotPassword(forgotData: ForgotPassword): Promise<{ message: string }> {
+    return this.request<{ message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify(forgotData),
+    });
+  }
+
+  async resetPassword(resetData: ResetPassword): Promise<{ message: string }> {
+    return this.request<{ message: string }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(resetData),
+    });
+  }
+  
+
   // Match analysis endpoints
   async getUploadUrl(token: string): Promise<UploadResponse> {
     return this.request<UploadResponse>('/analysis/get-upload', {
@@ -185,8 +241,16 @@ class ApiClient {
     });
   }
 
-  async getMatchHistory(token: string): Promise<MatchResponse[]> {
-    return this.request<MatchResponse[]>('/match/match_history', {
+  async getMatchHistory(token: string, page: number = 1, limit: number = 10): Promise<PaginatedMatchResponse> {
+    return this.request<PaginatedMatchResponse>(`/match/match_history?page=${page}&limit=${limit}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+  }
+
+  async getAllMatches(token: string): Promise<MatchResponse[]> {
+    return this.request<MatchResponse[]>('/match/match_history/all', {
       headers: {
         'Authorization': `Bearer ${token}`,
       },

@@ -5,7 +5,6 @@ import {
   Upload, 
   History, 
   User, 
-  Settings, 
   LogOut,
   Menu,
   X,
@@ -31,7 +30,6 @@ export const Layout = (): JSX.Element => {
     { name: "Video History", href: "/history", icon: History },
     { name: "Reports", href: "/reports", icon: FileText },
     { name: "Profile", href: "/profile", icon: User },
-    { name: "Settings", href: "/settings", icon: Settings },
   ];
 
   const handleLogout = () => {

@@ -5,11 +5,13 @@ import { LandingPage } from "./screens/LandingPage";
 import { SignupPage } from "./screens/SignupPage";
 import { LoginPage } from "./screens/LoginPage";
 import { OTPVerification } from "./screens/OTPVerification";
+import { ForgotPassword } from "./screens/ForgotPassword";
+import { ResetPassword } from "./screens/ResetPassword";
 import { Dashboard } from "./screens/Dashboard";
 import { VideoUpload } from "./screens/VideoUpload";
 import { VideoHistory } from "./screens/VideoHistory";
 import { UserProfile } from "./screens/UserProfile";
-import { Settings } from "./screens/Settings";
+
 import { MatchAnalytics } from "./screens/MatchAnalytics";
 import { ReportGeneration } from "./screens/ReportGeneration";
 import { ErrorPage } from "./screens/ErrorPage";
@@ -56,6 +58,8 @@ export const App = (): JSX.Element => {
         <Route path="/signup" element={!user ? <SignupPage /> : <Navigate to="/dashboard" />} />
         <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/dashboard" />} />
         <Route path="/verify-otp" element={!user ? <OTPVerification /> : <Navigate to="/dashboard" />} />
+        <Route path="/forgot-password" element={!user ? <ForgotPassword /> : <Navigate to="/dashboard" />} />
+        <Route path="/reset-password" element={!user ? <ResetPassword /> : <Navigate to="/dashboard" />} />
         
         {/* Protected routes */}
         <Route path="/" element={
@@ -68,7 +72,6 @@ export const App = (): JSX.Element => {
           <Route path="upload" element={<VideoUpload />} />
           <Route path="history" element={<VideoHistory />} />
           <Route path="profile" element={<UserProfile />} />
-          <Route path="settings" element={<Settings />} />
           <Route path="analytics/:matchId" element={<MatchAnalytics />} />
           <Route path="reports" element={<ReportGeneration />} />
         </Route>

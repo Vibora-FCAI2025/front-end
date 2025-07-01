@@ -104,7 +104,12 @@ export const LoginPage = (): JSX.Element => {
 
             <SocialLoginButtons />
 
-            <div className="text-center mt-6">
+            <div className="text-center mt-6 space-y-2">
+              <p className="text-gray-300">
+                <Link to="/forgot-password" className="text-blue-400 hover:text-blue-300 font-medium">
+                  Forgot your password?
+                </Link>
+              </p>
               <p className="text-gray-300">
                 Don't have an account?{" "}
                 <Link to="/signup" className="text-blue-400 hover:text-blue-300 font-medium">

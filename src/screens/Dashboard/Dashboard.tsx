@@ -1,28 +1,63 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { Upload, Play, TrendingUp, Clock, Target, Zap, Users, BarChart3, Eye, Download } from "lucide-react";
+import { Upload, Play, Eye, FileText, TrendingUp, Users, Clock } from "lucide-react";
 import { Link } from "react-router-dom";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { EmbeddedVideoPlayer } from "../../components/EmbeddedVideoPlayer";
+import { useAuth } from "../../contexts/AuthContext";
+import { apiClient, MatchResponse, PaginatedMatchResponse } from "../../lib/api";
+
 
 export const Dashboard = (): JSX.Element => {
-  // Mock data for charts
-  const analysisData = [
-    { month: "Jan", videos: 8, accuracy: 78 },
-    { month: "Feb", videos: 12, accuracy: 82 },
-    { month: "Mar", videos: 15, accuracy: 85 },
-    { month: "Apr", videos: 18, accuracy: 88 },
-    { month: "May", videos: 22, accuracy: 90 },
-    { month: "Jun", videos: 25, accuracy: 92 },
-  ];
+  const { token } = useAuth();
+  const [recentMatches, setRecentMatches] = useState<MatchResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const recentAnalyses = [
-    { id: 1, title: "Match Analysis - Carlos vs Ana", date: "2024-01-15", type: "Match", duration: "1:45:30" },
-    { id: 2, title: "Training Session Analysis", date: "2024-01-12", type: "Training", duration: "2:15:45" },
-    { id: 3, title: "Tournament Final Analysis", date: "2024-01-10", type: "Tournament", duration: "1:30:20" },
-  ];
+  // Fetch recent matches from API
+  useEffect(() => {
+    const fetchRecentMatches = async () => {
+      if (!token) return;
+      
+      try {
+        setLoading(true);
+        setError("");
+        
+        // Get first page with 6 items for dashboard
+        const response = await apiClient.getMatchHistory(token, 1, 6);
+        setRecentMatches(response.matches);
+      } catch (err) {
+        setError("Failed to load recent matches");
+        console.error("Error fetching recent matches:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const recentMatches = [
+    fetchRecentMatches();
+  }, [token]);
+
+  // Convert API matches to the format expected by the component
+  const recentMatchesFormatted = recentMatches.map((match) => ({
+    id: match.id,
+    title: match.title || new Date(match.date).toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    }),
+    date: match.date,
+    duration: "1:45:30", // Would come from API in real implementation
+    thumbnail: match.match_screenshot_url || "https://images.pexels.com/photos/209977/pexels-photo-209977.jpeg?auto=compress&cs=tinysrgb&w=300",
+    status: match.status === "finished" ? "Processed" : 
+            match.status === "processing" ? "Processing" : 
+            match.status === "queued" ? "Queued" :
+            match.status === "pending" ? "Pending" : "Failed",
+    type: "Match"
+  }));
+
+  // Original mock data as fallback
+  const mockRecentMatches = [
     {
       id: 1,
       title: "Carlos vs Ana Rodriguez",
@@ -61,209 +96,233 @@ export const Dashboard = (): JSX.Element => {
     }
   ];
 
-  const stats = [
-    { title: "Videos Analyzed", value: "156", icon: Play, color: "text-blue-600" },
-    { title: "Total Analysis Time", value: "284h", icon: Clock, color: "text-purple-600" },
-  ];
+  // Find the latest processed match
+  const latestProcessedMatch = recentMatchesFormatted.find(match => match.status === "Processed");
+
+  // Mock velocity data for the latest match
+  const velocityOverTime = latestProcessedMatch ? [
+    { time: '0:00', 'Player 1': 12.5, 'Player 2': 11.8, 'Player 3': 13.2, 'Player 4': 12.1 },
+    { time: '0:15', 'Player 1': 14.2, 'Player 2': 13.5, 'Player 3': 15.1, 'Player 4': 13.8 },
+    { time: '0:30', 'Player 1': 15.8, 'Player 2': 14.9, 'Player 3': 14.2, 'Player 4': 12.7 },
+    { time: '0:45', 'Player 1': 13.1, 'Player 2': 12.8, 'Player 3': 16.4, 'Player 4': 15.2 },
+    { time: '1:00', 'Player 1': 16.5, 'Player 2': 15.7, 'Player 3': 14.8, 'Player 4': 13.9 },
+    { time: '1:15', 'Player 1': 14.9, 'Player 2': 13.6, 'Player 3': 12.5, 'Player 4': 11.8 },
+  ] : [];
 
   return (
     <div className="space-y-6">
-      {/* Welcome Section */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-lg p-6 text-white">
-        <h1 className="text-2xl font-bold mb-2">Welcome to Padel Video Analytics</h1>
-        <p className="text-blue-100 mb-4">
-          Analyze padel matches and training sessions with advanced video analytics. 
-          Track performance, identify patterns, and improve game strategies.
-        </p>
-        <div className="flex space-x-3">
-        <Link to="/upload">
-            <Button className="bg-white text-blue-600 hover:bg-gray-50">
-            <Upload className="mr-2 h-4 w-4" />
-              Upload Video
-            </Button>
-          </Link>
-          <Link to="/history">
-            <Button className="bg-white text-blue-600 hover:bg-gray-50">
-              <Play className="mr-2 h-4 w-4" />
-              View Analysis History
-          </Button>
-        </Link>
-        </div>
-      </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {stats.map((stat, index) => {
-          const Icon = stat.icon;
-          return (
-            <Card key={index} className="hover-glow">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">{stat.title}</p>
-                    <p className="text-2xl font-bold">{stat.value}</p>
-                  </div>
-                  <Icon className={`h-8 w-8 ${stat.color}`} />
+      {/* Latest Match Analysis */}
+      <Card className="hover-glow">
+        <CardHeader>
+          <CardTitle>Latest Processed Match</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="text-center py-8">
+              <div className="animate-pulse text-sm text-gray-500">Loading latest processed match...</div>
+            </div>
+          ) : latestProcessedMatch ? (
+            <div className="space-y-6">
+              {/* Match Info */}
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="font-semibold text-lg mb-1">{latestProcessedMatch.title}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {new Date(latestProcessedMatch.date).toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: 'long', 
+                      day: 'numeric' 
+                    })}
+                  </p>
                 </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+                <Link to={`/analytics/${latestProcessedMatch.id}`}>
+                  <Button>
+                    <Eye className="h-4 w-4 mr-2" />
+                    View Full Analysis
+                  </Button>
+                </Link>
+              </div>
 
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Analysis Trend */}
-        <Card className="hover-glow">
-          <CardHeader>
-            <CardTitle>Analysis Activity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={analysisData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip />
-                <Line 
-                  type="monotone" 
-                  dataKey="videos" 
-                  stroke="#3B82F6" 
-                  strokeWidth={2}
-                  name="Videos Analyzed"
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="accuracy" 
-                  stroke="#10B981" 
-                  strokeWidth={2}
-                  name="Avg Accuracy (%)"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+              {/* Horizontal Layout for Video and Chart */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Annotated Video Player */}
+                <div>
+                  <h4 className="font-medium mb-3">Annotated Match Replay</h4>
+                  {/* Use annotated video URL if available, otherwise fall back to screenshot */}
+                  <div className="w-full h-[300px]">
+                    <EmbeddedVideoPlayer
+                      videoUrl={recentMatches.find(m => m.id === latestProcessedMatch.id)?.annotated_video_url || latestProcessedMatch.thumbnail}
+                      title="Annotated Match Replay"
+                      className="w-full h-full rounded-lg"
+                    />
+                  </div>
+                </div>
 
-        {/* Recent Matches */}
-        <Card className="hover-glow">
-          <CardHeader>
-            <CardTitle>Recent Matches</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {recentMatches.slice(0, 3).map((match) => (
-                <Card key={match.id} className="p-3 hover:bg-card-hover transition-colors">
-                  <div className="flex items-center space-x-3">
+                {/* Player Velocity Chart */}
+                <div>
+                  <h4 className="font-medium mb-3">Player Velocity Over Time</h4>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Real-time player movement analysis
+                  </p>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={velocityOverTime}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="time" />
+                      <YAxis label={{ value: 'Velocity (m/s)', angle: -90, position: 'insideLeft' }} />
+                      <Tooltip />
+                      <Line 
+                        type="monotone" 
+                        dataKey="Player 1" 
+                        stroke="#3B82F6" 
+                        strokeWidth={2}
+                        name="Player 1"
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="Player 2" 
+                        stroke="#10B981" 
+                        strokeWidth={2}
+                        name="Player 2"
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="Player 3" 
+                        stroke="#F59E0B" 
+                        strokeWidth={2}
+                        name="Player 3"
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="Player 4" 
+                        stroke="#EF4444" 
+                        strokeWidth={2}
+                        name="Player 4"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <div className="text-sm text-gray-500">No processed matches found</div>
+              <div className="text-xs text-gray-400 mt-2">Upload a match and wait for processing to complete</div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Recent Matches List */}
+      <Card className="hover-glow">
+        <CardHeader>
+          <CardTitle>Recent Matches</CardTitle>
+        </CardHeader>
+                  <CardContent>
+            <div className="space-y-4">
+              {loading && (
+                <div className="text-center py-8">
+                  <div className="animate-pulse text-sm text-gray-500">Loading recent matches...</div>
+                </div>
+              )}
+              
+              {error && (
+                <div className="text-center py-8">
+                  <div className="text-sm text-red-500">{error}</div>
+                </div>
+              )}
+              
+              {!loading && !error && recentMatchesFormatted.length === 0 && (
+                <div className="text-center py-8">
+                  <div className="text-sm text-gray-500">No matches found</div>
+                </div>
+              )}
+              
+              {!loading && !error && recentMatchesFormatted.slice(0, 4).map((match) => (
+              <Card key={match.id} className="p-4 hover:shadow-md transition-all duration-200">
+                <div className="flex items-center space-x-4">
+                  <div className="relative">
                     <img
                       src={match.thumbnail}
                       alt={match.title}
-                      className="w-16 h-12 object-cover rounded"
+                      className="w-20 h-16 object-cover rounded"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        const fallback = target.nextElementSibling as HTMLDivElement;
+                        if (fallback && fallback.classList.contains('thumbnail-fallback')) {
+                          fallback.style.display = 'flex';
+                        }
+                      }}
                     />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{match.title}</p>
-                      <p className="text-xs text-muted-foreground">{match.date}</p>
+                    <div 
+                      className="thumbnail-fallback w-20 h-16 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 flex items-center justify-center text-gray-500 dark:text-gray-400 rounded"
+                      style={{ display: 'none' }}
+                    >
+                      <Play className="h-6 w-6 opacity-50" />
+                    </div>
                   </div>
-                    <div className="flex items-center space-x-2">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        match.status === "Analyzed" 
+                  
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-sm mb-1 truncate">{match.title}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date(match.date).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })}
+                    </p>
+                    <span className={`inline-flex mt-2 px-2 py-1 text-xs font-semibold rounded-full ${
+                        match.status === "Processed" 
                           ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
                           : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100"
                     }`}>
                         {match.status}
                     </span>
-                      {match.status === "Analyzed" && (
+                  </div>
+                  
+                  <div className="flex-shrink-0">
+                    {match.status === "Processed" ? (
+                      <div className="flex space-x-2">
                         <Link to={`/analytics/${match.id}`}>
-                          <Button size="sm" variant="outline" className="text-xs">
-                            <Eye className="h-3 w-3" />
+                          <Button size="sm" variant="outline">
+                            <Eye className="h-4 w-4 mr-1" />
+                            Analysis
                           </Button>
                         </Link>
-                      )}
-                    </div>
+                        <Button size="sm" variant="outline">
+                          <Play className="h-4 w-4 mr-1" />
+                          Replay
+                        </Button>
+                        <Link to="/reports">
+                          <Button size="sm" variant="outline">
+                            <FileText className="h-4 w-4 mr-1" />
+                            Report
+                          </Button>
+                        </Link>
+                      </div>
+                    ) : (
+                      <Button size="sm" disabled>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
+                        {match.status}
+                      </Button>
+                    )}
                   </div>
-                </Card>
-              ))}
-            </div>
-            <Link to="/history">
-              <Button variant="outline" className="w-full mt-4">
-                View All Matches
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Quick Actions */}
-      <Card className="hover-glow">
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Link to="/upload">
-              <Button variant="outline" className="w-full h-24 flex flex-col items-center justify-center space-y-2 hover-scale">
-                <Upload className="h-6 w-6" />
-                <span className="text-sm font-medium">Upload Video</span>
-              </Button>
-            </Link>
-            <Link to="/history">
-              <Button variant="outline" className="w-full h-24 flex flex-col items-center justify-center space-y-2 hover-scale">
-                <Play className="h-6 w-6" />
-                <span className="text-sm font-medium">Video History</span>
-              </Button>
-            </Link>
-            <Link to="/profile">
-              <Button variant="outline" className="w-full h-24 flex flex-col items-center justify-center space-y-2 hover-scale">
-                <Users className="h-6 w-6" />
-                <span className="text-sm font-medium">View Profile</span>
-              </Button>
-            </Link>
-            <Link to="/settings">
-              <Button variant="outline" className="w-full h-24 flex flex-col items-center justify-center space-y-2 hover-scale">
-                <BarChart3 className="h-6 w-6" />
-                <span className="text-sm font-medium">Settings</span>
-              </Button>
-            </Link>
+                </div>
+              </Card>
+            ))}
           </div>
+          <Link to="/history">
+            <Button variant="outline" className="w-full mt-6">
+              View All Matches
+            </Button>
+          </Link>
         </CardContent>
       </Card>
 
-      {/* Analysis Tips */}
-      <Card className="hover-glow">
-        <CardHeader>
-          <CardTitle>Analysis Tips</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="flex items-start space-x-3">
-              <Target className="h-6 w-6 text-blue-600 mt-1" />
-              <div>
-                <h4 className="font-medium mb-1">For Players</h4>
-                <p className="text-sm text-muted-foreground">
-                  Upload match footage to track your shot accuracy, movement patterns, and identify areas for improvement.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start space-x-3">
-              <Zap className="h-6 w-6 text-purple-600 mt-1" />
-              <div>
-                <h4 className="font-medium mb-1">For Coaches</h4>
-                <p className="text-sm text-muted-foreground">
-                  Analyze training sessions and matches to develop strategic insights and provide data-driven feedback.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start space-x-3">
-              <TrendingUp className="h-6 w-6 text-green-600 mt-1" />
-              <div>
-                <h4 className="font-medium mb-1">For Analysts</h4>
-                <p className="text-sm text-muted-foreground">
-                  Generate comprehensive reports with advanced metrics and visualizations for professional analysis.
-                </p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+
+
+
     </div>
   );
 };
