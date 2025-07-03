@@ -1,14 +1,63 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Upload, Play, Eye, TrendingUp, Users, Clock } from "lucide-react";
 import { Link } from "react-router-dom";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+
 import { EmbeddedVideoPlayer } from "../../components/EmbeddedVideoPlayer";
 import { VideoPlayerModal } from "../../components/VideoPlayerModal";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiClient, MatchResponse, PaginatedMatchResponse } from "../../lib/api";
+import { PlayerVelocityChart, PlayerHitsBarChart } from '../../components/MatchAnalysisCharts';
 
+type VelocityOverTimeEntry = { time: string; [player: string]: number | string };
+type ChartData = {
+  velocityOverTime: VelocityOverTimeEntry[];
+  playerHitsData: { name: string; hits: number }[];
+  playerNames: string[];
+};
+
+async function parseCSVData(csvUrl: string): Promise<ChartData> {
+  try {
+    const response = await fetch(csvUrl);
+    const csvText = await response.text();
+    const lines = csvText.trim().split('\n');
+    const headers = lines[0].split(',');
+    const playerVelocityColumns = ['player1_Vnorm', 'player2_Vnorm', 'player3_Vnorm', 'player4_Vnorm'];
+    const velocityIndices = playerVelocityColumns.map(col => headers.findIndex(header => header.trim().toLowerCase() === col.toLowerCase())).filter(index => index !== -1);
+    const playerNames = ['Player 1', 'Player 2', 'Player 3', 'Player 4'];
+    // Build velocityOverTime for chart
+    const velocityOverTime: VelocityOverTimeEntry[] = [];
+    for (let i = 1; i < lines.length; i += 10) { // sample every 10th row for performance
+      const values = lines[i].split(',');
+      const timeInSeconds = Math.floor((i - 1) / 30); // Assuming 30 fps
+      const minutes = Math.floor(timeInSeconds / 60);
+      const seconds = timeInSeconds % 60;
+      const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      const entry: VelocityOverTimeEntry = { time: timeString };
+      velocityIndices.forEach((colIndex, idx) => {
+        entry[playerNames[idx]] = parseFloat(values[colIndex]) || 0;
+      });
+      velocityOverTime.push(entry);
+    }
+    // Player hits
+    const ballHitColumnIndex = headers.findIndex(header => header.trim().toLowerCase() === 'player_ball_hit');
+    const playerHitCounts = [0, 0, 0, 0];
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',');
+      if (ballHitColumnIndex !== -1 && values[ballHitColumnIndex]) {
+        const playerHit = parseInt(values[ballHitColumnIndex].trim());
+        if (!isNaN(playerHit) && playerHit >= 1 && playerHit <= 4) {
+          playerHitCounts[playerHit - 1]++;
+        }
+      }
+    }
+    const playerHitsData = playerNames.map((name, idx) => ({ name, hits: playerHitCounts[idx] }));
+    return { velocityOverTime, playerHitsData, playerNames };
+  } catch (error) {
+    return { velocityOverTime: [], playerHitsData: [], playerNames: [] };
+  }
+}
 
 export const Dashboard = (): JSX.Element => {
   const { token } = useAuth();
@@ -17,6 +66,9 @@ export const Dashboard = (): JSX.Element => {
   const [error, setError] = useState("");
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<MatchResponse | null>(null);
+  const [chartData, setChartData] = React.useState<ChartData>({ velocityOverTime: [], playerHitsData: [], playerNames: [] });
+  const [csvLoading, setCsvLoading] = React.useState(false);
+  const lastFetchedCsvUrl = React.useRef<string | null>(null);
 
   // Fetch recent matches from API
   useEffect(() => {
@@ -59,8 +111,8 @@ export const Dashboard = (): JSX.Element => {
       day: 'numeric' 
     }),
     date: match.date,
-    duration: "1:45:30", // Would come from API in real implementation
-    thumbnail: match.match_screenshot_url || "https://images.pexels.com/photos/209977/pexels-photo-209977.jpeg?auto=compress&cs=tinysrgb&w=300",
+    duration: "N/A", // Duration not available from API
+    thumbnail: match.match_screenshot_url || "",
     status: match.status === "finished" ? "Processed" : 
             match.status === "processing" ? "Processing" : 
             match.status === "queued" ? "Queued" :
@@ -68,58 +120,23 @@ export const Dashboard = (): JSX.Element => {
     type: "Match"
   }));
 
-  // Original mock data as fallback
-  const mockRecentMatches = [
-    {
-      id: 1,
-      title: "Carlos vs Ana Rodriguez",
-      date: "2024-01-15",
-      duration: "1:45:30",
-      thumbnail: "https://images.pexels.com/photos/209977/pexels-photo-209977.jpeg?auto=compress&cs=tinysrgb&w=300",
-      status: "Analyzed",
-      type: "Match"
-    },
-    {
-      id: 2,
-      title: "Training Session - Team A",
-      date: "2024-01-12",
-      duration: "2:15:45",
-      thumbnail: "https://images.pexels.com/photos/163452/basketball-dunk-blue-game-163452.jpeg?auto=compress&cs=tinysrgb&w=300",
-      status: "Analyzed",
-      type: "Training"
-    },
-    {
-      id: 3,
-      title: "Tournament Final",
-      date: "2024-01-10",
-      duration: "1:30:20",
-      thumbnail: "https://images.pexels.com/photos/274422/pexels-photo-274422.jpeg?auto=compress&cs=tinysrgb&w=300",
-      status: "Processing",
-      type: "Tournament"
-    },
-    {
-      id: 4,
-      title: "Miguel vs David",
-      date: "2024-01-08",
-      duration: "1:22:15",
-      thumbnail: "https://images.pexels.com/photos/209977/pexels-photo-209977.jpeg?auto=compress&cs=tinysrgb&w=300",
-      status: "Analyzed",
-      type: "Match"
+  // Find the latest processed match (MatchResponse, not formatted)
+  const latestProcessedMatchCsv = recentMatches.find(m => m.status === "finished");
+
+  React.useEffect(() => {
+    async function fetchCSVForLatest() {
+      if (!latestProcessedMatchCsv) return;
+      const csvUrl = latestProcessedMatchCsv.analysis_data_url;
+      if (csvUrl && csvUrl !== lastFetchedCsvUrl.current) {
+        setCsvLoading(true);
+        const data = await parseCSVData(csvUrl);
+        setChartData(data);
+        setCsvLoading(false);
+        lastFetchedCsvUrl.current = csvUrl;
+      }
     }
-  ];
-
-  // Find the latest processed match
-  const latestProcessedMatch = recentMatchesFormatted.find(match => match.status === "Processed");
-
-  // Mock velocity data for the latest match
-  const velocityOverTime = latestProcessedMatch ? [
-    { time: '0:00', 'Player 1': 12.5, 'Player 2': 11.8, 'Player 3': 13.2, 'Player 4': 12.1 },
-    { time: '0:15', 'Player 1': 14.2, 'Player 2': 13.5, 'Player 3': 15.1, 'Player 4': 13.8 },
-    { time: '0:30', 'Player 1': 15.8, 'Player 2': 14.9, 'Player 3': 14.2, 'Player 4': 12.7 },
-    { time: '0:45', 'Player 1': 13.1, 'Player 2': 12.8, 'Player 3': 16.4, 'Player 4': 15.2 },
-    { time: '1:00', 'Player 1': 16.5, 'Player 2': 15.7, 'Player 3': 14.8, 'Player 4': 13.9 },
-    { time: '1:15', 'Player 1': 14.9, 'Player 2': 13.6, 'Player 3': 12.5, 'Player 4': 11.8 },
-  ] : [];
+    fetchCSVForLatest();
+  }, [latestProcessedMatchCsv?.id, latestProcessedMatchCsv?.analysis_data_url]);
 
   return (
     <div className="space-y-6">
@@ -134,21 +151,21 @@ export const Dashboard = (): JSX.Element => {
             <div className="text-center py-8">
               <div className="animate-pulse text-sm text-gray-500">Loading latest processed match...</div>
             </div>
-          ) : latestProcessedMatch ? (
+          ) : latestProcessedMatchCsv ? (
             <div className="space-y-6">
               {/* Match Info */}
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="font-semibold text-lg mb-1">{latestProcessedMatch.title}</h3>
+                  <h3 className="font-semibold text-lg mb-1">{latestProcessedMatchCsv.title}</h3>
                   <p className="text-sm text-muted-foreground">
-                    {new Date(latestProcessedMatch.date).toLocaleDateString('en-US', { 
+                    {new Date(latestProcessedMatchCsv.date).toLocaleDateString('en-US', { 
                       year: 'numeric', 
                       month: 'long', 
                       day: 'numeric' 
                     })}
                   </p>
                 </div>
-                <Link to={`/analytics/${latestProcessedMatch.id}`}>
+                <Link to={`/analytics/${latestProcessedMatchCsv.id}`}>
                   <Button>
                     <Eye className="h-4 w-4 mr-2" />
                     View Full Analysis
@@ -163,11 +180,21 @@ export const Dashboard = (): JSX.Element => {
                   <h4 className="font-medium mb-3">Annotated Match Replay</h4>
                   {/* Use annotated video URL if available, otherwise fall back to screenshot */}
                   <div className="w-full h-[300px]">
-                    <EmbeddedVideoPlayer
-                      videoUrl={recentMatches.find(m => m.id === latestProcessedMatch.id)?.annotated_video_url || latestProcessedMatch.thumbnail}
-                      title="Annotated Match Replay"
-                      className="w-full h-full rounded-lg"
-                    />
+                    {recentMatches.find(m => m.id === latestProcessedMatchCsv.id)?.annotated_video_url ? (
+                      <EmbeddedVideoPlayer
+                        videoUrl={recentMatches.find(m => m.id === latestProcessedMatchCsv.id)?.annotated_video_url || ''}
+                        title="Annotated Match Replay"
+                        className="w-full h-full rounded-lg"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center">
+                        <div className="text-center">
+                          <Play className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Annotated video will appear here</p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">After match analysis is complete</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -177,42 +204,28 @@ export const Dashboard = (): JSX.Element => {
                   <p className="text-sm text-muted-foreground mb-4">
                     Real-time player movement analysis
                   </p>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={velocityOverTime}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="time" />
-                      <YAxis label={{ value: 'Velocity (m/s)', angle: -90, position: 'insideLeft' }} />
-                      <Tooltip />
-                      <Line 
-                        type="monotone" 
-                        dataKey="Player 1" 
-                        stroke="#3B82F6" 
-                        strokeWidth={2}
-                        name="Player 1"
-                      />
-                      <Line 
-                        type="monotone" 
-                        dataKey="Player 2" 
-                        stroke="#10B981" 
-                        strokeWidth={2}
-                        name="Player 2"
-                      />
-                      <Line 
-                        type="monotone" 
-                        dataKey="Player 3" 
-                        stroke="#F59E0B" 
-                        strokeWidth={2}
-                        name="Player 3"
-                      />
-                      <Line 
-                        type="monotone" 
-                        dataKey="Player 4" 
-                        stroke="#EF4444" 
-                        strokeWidth={2}
-                        name="Player 4"
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  {csvLoading ? (
+                    <div className="h-[300px] flex items-center justify-center bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <div className="text-center">
+                        <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                        <p className="text-sm text-gray-500 dark:text-gray-400">Loading velocity data...</p>
+                      </div>
+                    </div>
+                  ) : chartData.velocityOverTime.length > 0 ? (
+                    <PlayerVelocityChart
+                      data={chartData.velocityOverTime}
+                      playerNames={chartData.playerNames}
+                      colors={["#3B82F6", "#10B981", "#F59E0B", "#EF4444"]}
+                    />
+                  ) : (
+                    <div className="h-[300px] flex items-center justify-center bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <div className="text-center">
+                        <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                        <p className="text-sm text-gray-500 dark:text-gray-400">Velocity data will appear here</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">After match analysis is complete</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -254,22 +267,23 @@ export const Dashboard = (): JSX.Element => {
               <Card key={match.id} className="p-4 hover:shadow-md transition-all duration-200">
                 <div className="flex items-center space-x-4">
                   <div className="relative">
-                    <img
-                      src={match.thumbnail}
-                      alt={match.title}
-                      className="w-20 h-16 object-cover rounded"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.style.display = 'none';
-                        const fallback = target.nextElementSibling as HTMLDivElement;
-                        if (fallback && fallback.classList.contains('thumbnail-fallback')) {
-                          fallback.style.display = 'flex';
-                        }
-                      }}
-                    />
+                    {match.thumbnail ? (
+                      <img
+                        src={match.thumbnail}
+                        alt={match.title}
+                        className="w-20 h-16 object-cover rounded"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          const fallback = target.nextElementSibling as HTMLDivElement;
+                          if (fallback && fallback.classList.contains('thumbnail-fallback')) {
+                            fallback.style.display = 'flex';
+                          }
+                        }}
+                      />
+                    ) : null}
                     <div 
-                      className="thumbnail-fallback w-20 h-16 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 flex items-center justify-center text-gray-500 dark:text-gray-400 rounded"
-                      style={{ display: 'none' }}
+                      className={`thumbnail-fallback w-20 h-16 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 flex items-center justify-center text-gray-500 dark:text-gray-400 rounded ${!match.thumbnail ? 'block' : 'hidden'}`}
                     >
                       <Play className="h-6 w-6 opacity-50" />
                     </div>

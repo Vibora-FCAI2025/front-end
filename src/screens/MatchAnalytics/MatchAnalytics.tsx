@@ -37,6 +37,7 @@ import { scaleSequential } from "d3-scale";
 import { interpolateYlOrRd } from "d3-scale-chromatic";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiClient, MatchResponse } from "../../lib/api";
+import { PlayerVelocityChart, PlayerHitsBarChart, BallVelocityAccelerationChart } from '../../components/MatchAnalysisCharts';
 
 interface PlayerStats {
   name: string;
@@ -1405,17 +1406,11 @@ export const MatchAnalytics = (): JSX.Element => {
               <CardTitle>Player Velocity Over Time</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={velocityOverTime}>
-                  <XAxis dataKey="time" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line type="monotone" dataKey={matchData.players[0].name} stroke="#3B82F6" strokeWidth={2} name={matchData.players[0].name} />
-                  <Line type="monotone" dataKey={matchData.players[1].name} stroke="#10B981" strokeWidth={2} name={matchData.players[1].name} />
-                  <Line type="monotone" dataKey={matchData.players[2].name} stroke="#F59E0B" strokeWidth={2} name={matchData.players[2].name} />
-                  <Line type="monotone" dataKey={matchData.players[3].name} stroke="#EF4444" strokeWidth={2} name={matchData.players[3].name} />
-                </LineChart>
-              </ResponsiveContainer>
+              <PlayerVelocityChart
+                data={velocityOverTime}
+                playerNames={matchData.players.map(p => p.name)}
+                colors={["#3B82F6", "#10B981", "#F59E0B", "#EF4444"]}
+              />
             </CardContent>
           </Card>
 
@@ -1425,14 +1420,7 @@ export const MatchAnalytics = (): JSX.Element => {
               <CardTitle>Player Hits</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={playerHitsData}>
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="hits" fill="#3B82F6" name="Total Hits" />
-                </BarChart>
-              </ResponsiveContainer>
+              <PlayerHitsBarChart data={playerHitsData} />
             </CardContent>
           </Card>
           </div>
@@ -1495,17 +1483,11 @@ export const MatchAnalytics = (): JSX.Element => {
               <CardTitle>Player Velocity Over Time</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={velocityOverTime}>
-                  <XAxis dataKey="time" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line type="monotone" dataKey={matchData.players[0].name} stroke="#3B82F6" strokeWidth={2} name={matchData.players[0].name} />
-                  <Line type="monotone" dataKey={matchData.players[1].name} stroke="#10B981" strokeWidth={2} name={matchData.players[1].name} />
-                  <Line type="monotone" dataKey={matchData.players[2].name} stroke="#F59E0B" strokeWidth={2} name={matchData.players[2].name} />
-                  <Line type="monotone" dataKey={matchData.players[3].name} stroke="#EF4444" strokeWidth={2} name={matchData.players[3].name} />
-                </LineChart>
-              </ResponsiveContainer>
+              <PlayerVelocityChart
+                data={velocityOverTime}
+                playerNames={matchData.players.map(p => p.name)}
+                colors={["#3B82F6", "#10B981", "#F59E0B", "#EF4444"]}
+              />
             </CardContent>
           </Card>
 
@@ -1637,31 +1619,7 @@ export const MatchAnalytics = (): JSX.Element => {
               <CardTitle>Ball Velocity & Acceleration Over Time</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={400}>
-                <LineChart data={ballVelocityData}>
-                  <XAxis dataKey="time" />
-                  <YAxis yAxisId="velocity" orientation="left" />
-                  <YAxis yAxisId="acceleration" orientation="right" />
-                  <Tooltip />
-                  <Line 
-                    yAxisId="velocity"
-                    type="monotone" 
-                    dataKey="velocity" 
-                    stroke="#3B82F6" 
-                    strokeWidth={3}
-                    name="Velocity (m/s)"
-                  />
-                  <Line 
-                    yAxisId="acceleration"
-                    type="monotone" 
-                    dataKey="acceleration" 
-                    stroke="#EF4444" 
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    name="Acceleration (m/s²)"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <BallVelocityAccelerationChart data={ballVelocityData} />
             </CardContent>
           </Card>
         </div>
