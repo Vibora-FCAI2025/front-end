@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { Upload, Play, Eye, FileText, TrendingUp, Users, Clock } from "lucide-react";
+import { Upload, Play, Eye, TrendingUp, Users, Clock } from "lucide-react";
 import { Link } from "react-router-dom";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { EmbeddedVideoPlayer } from "../../components/EmbeddedVideoPlayer";
+import { VideoPlayerModal } from "../../components/VideoPlayerModal";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiClient, MatchResponse, PaginatedMatchResponse } from "../../lib/api";
 
@@ -14,6 +15,8 @@ export const Dashboard = (): JSX.Element => {
   const [recentMatches, setRecentMatches] = useState<MatchResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+  const [selectedMatch, setSelectedMatch] = useState<MatchResponse | null>(null);
 
   // Fetch recent matches from API
   useEffect(() => {
@@ -37,6 +40,15 @@ export const Dashboard = (): JSX.Element => {
 
     fetchRecentMatches();
   }, [token]);
+
+  // Function to handle opening video replay
+  const handleReplayClick = (matchId: string) => {
+    const match = recentMatches.find(m => m.id === matchId);
+    if (match && match.video_url) {
+      setSelectedMatch(match);
+      setIsVideoModalOpen(true);
+    }
+  };
 
   // Convert API matches to the format expected by the component
   const recentMatchesFormatted = recentMatches.map((match) => ({
@@ -290,16 +302,15 @@ export const Dashboard = (): JSX.Element => {
                             Analysis
                           </Button>
                         </Link>
-                        <Button size="sm" variant="outline">
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => handleReplayClick(match.id)}
+                          disabled={!recentMatches.find(m => m.id === match.id)?.video_url}
+                        >
                           <Play className="h-4 w-4 mr-1" />
                           Replay
                         </Button>
-                        <Link to="/reports">
-                          <Button size="sm" variant="outline">
-                            <FileText className="h-4 w-4 mr-1" />
-                            Report
-                          </Button>
-                        </Link>
                       </div>
                     ) : (
                       <Button size="sm" disabled>
@@ -320,8 +331,13 @@ export const Dashboard = (): JSX.Element => {
         </CardContent>
       </Card>
 
-
-
+      {/* Video Player Modal */}
+      <VideoPlayerModal
+        isOpen={isVideoModalOpen}
+        onClose={() => setIsVideoModalOpen(false)}
+        videoUrl={selectedMatch?.video_url || ''}
+        title={selectedMatch?.title || 'Match Replay'}
+      />
 
     </div>
   );
