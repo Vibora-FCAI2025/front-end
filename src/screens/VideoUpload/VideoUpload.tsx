@@ -26,6 +26,7 @@ export const VideoUpload = (): JSX.Element => {
   const [videoSize, setVideoSize] = useState({ width: 640, height: 360 });
   const [originalVideoSize, setOriginalVideoSize] = useState({ width: 640, height: 360 });
   const [matchTitle, setMatchTitle] = useState("");
+  const [fileError, setFileError] = useState<string | null>(null);
   const [metadata, setMetadata] = useState({
     matchDate: "",
     notes: "",
@@ -84,7 +85,12 @@ export const VideoUpload = (): JSX.Element => {
       setUploadProgress(0);
       setUploadStatus("idle");
       setVideoId(null);
+      setFileError(null); // Clear any previous errors
     }
+  }, []);
+
+  const onDropRejected = useCallback(() => {
+    setFileError("Please upload only MP4 video files.");
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -160,12 +166,14 @@ export const VideoUpload = (): JSX.Element => {
     setUploadProgress(0);
     setUploadStatus("idle");
     setVideoId(null);
+    setFileError(null);
   };
 
   // Add a new function for Back
   const backToVideoSelection = () => {
     setShowKeypointSelection(false);
     setKeypoints([]);
+    setFileError(null);
     // Keep videoFile so user can re-pick keypoints
   };
 

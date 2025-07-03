@@ -191,6 +191,7 @@ class ApiClient {
     return this.request<{ message: string }>('/auth/change-password', {
       method: 'PUT',
       headers: {
+        'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify(passwordData),
